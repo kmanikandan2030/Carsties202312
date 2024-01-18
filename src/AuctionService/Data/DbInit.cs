@@ -1,28 +1,35 @@
 ﻿
+using AuctionService.DTOs;
 using AuctionService.Entities;
+using AutoMapper;
+using Contracts;
+using MassTransit;
+using MassTransit.Transports;
 using Microsoft.EntityFrameworkCore;
 
 namespace AuctionService.Data;
 
 public class DbInit
 {
-  public static void InitDb(WebApplication app)
-  {
-    using var scope = app.Services.CreateScope();
-    SeedData(scope.ServiceProvider.GetService<AuctionDbContext>());
-  }
-
-  private static void SeedData(AuctionDbContext context)
-  {
-    context.Database.Migrate();
-
-    if (context.Auctions.Any())
+    public static void InitDb(WebApplication app)
     {
-      Console.WriteLine("Already have data - no need to seed");
-      return;
+        using var scope = app.Services.CreateScope();
+        var mapper = scope.ServiceProvider.GetRequiredService<IMapper>();
+        var publishEndpoint = scope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
+        SeedData(scope.ServiceProvider.GetService<AuctionDbContext>(), mapper, publishEndpoint);
     }
 
-    var auctions = new List<Auction>()
+    private static void SeedData(AuctionDbContext context, IMapper mapper, IPublishEndpoint publishEndpoint)
+    {
+        context.Database.Migrate();
+
+        if (context.Auctions.Any())
+        {
+            Console.WriteLine("Already have data - no need to seed");
+            return;
+        }
+
+        var auctions = new List<Auction>()
         {
 	    // 1 Ford GT
             new Auction
@@ -202,10 +209,17 @@ public class DbInit
                     ImageUrl = "https://cdn.pixabay.com/photo/2017/08/02/19/47/vintage-2573090_960_720.jpg"
                 }
             }
-        };
+    };
 
-    context.AddRange(auctions);
-    context.SaveChanges();
-  }
+        context.AddRange(auctions);
+
+        foreach (var auction in auctions)
+        {
+            var newAuction = mapper.Map<AuctionDto>(auction);
+            publishEndpoint.Publish(mapper.Map<AuctionCreated>(newAuction));
+        }
+
+        context.SaveChanges();
+    }
 
 }
